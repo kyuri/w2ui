@@ -791,6 +791,15 @@
 
 					// standard HTML
 					case 'select':
+						// generate options
+						var items = field.options.items;
+						if (typeof items != 'undefined' && items.length > 0) {
+							items = w2obj.field.prototype.normMenu(items);
+							$(field.el).html('');
+							for (var it in items) {
+								$(field.el).append('<option value="'+ items[it].id +'">' + items[it].text + '</option');
+							}
+						}
 						$(field.el).val(value);
 						break;
 					case 'radio':
@@ -832,6 +841,9 @@
 			var eventData = this.trigger({ phase: 'before', target: this.name, type: 'render', box: (typeof box != 'undefined' ? box : this.box) });	
 			if (eventData.isCancelled === true) return false;
 			// default actions
+			if ($.isEmptyObject(this.original) && !$.isEmptyObject(this.record)) {
+				this.original = $.extend(true, {}, this.record);
+			}
 			var html =  '<div>' +
 						(this.header != '' ? '<div class="w2ui-form-header">' + this.header + '</div>' : '') +
 						'	<div id="form_'+ this.name +'_toolbar" class="w2ui-form-toolbar"></div>' +
