@@ -183,7 +183,7 @@
 	$.fn.w2grid = function(method) {
 		if (typeof method === 'object' || !method ) {
 			// check name parameter
-			if (!$.fn.w2checkNameParam(method, 'w2grid')) return;
+			if (!w2utils.checkName(method, 'w2grid')) return;
 			// remember items
 			var columns		= method.columns;
 			var columnGroups= method.columnGroups;
@@ -2531,7 +2531,7 @@
 			$('#grid_'+ this.name +'_rec_'+ id +'_expanded_row').show();
 			$('#grid_'+ this.name +'_cell_'+ this.get(recid, true) +'_expand div').html('<div class="w2ui-spinner" style="width: 16px; height: 16px; margin: -2px 2px;"></div>');
 			rec.expanded = true;
-			// check if height of expaned row > 5 then remove spinner
+			// check if height of expanded row > 5 then remove spinner
 			setTimeout(ready, 300);
 			function ready() {
 				var div1 = $('#grid_'+ obj.name +'_rec_'+ id +'_expanded');
