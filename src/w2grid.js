@@ -23,6 +23,7 @@
 *	- add showExtra, KickIn Infinite scroll when so many records
 *	- get rid of this.buffered
 *	- allow this.total to be unknown (-1)
+*	- after edit stay on the same record 
 *
 * == 1.4 changes
 *	- for search fields one should be able to pass w2field options
@@ -38,7 +39,7 @@
 *	- refactored inline editing
 *	- new: getCellValue(ind, col_ind, [summary])
 * 	- refactored selection
-*	- removed: record.selected 
+*	- removed: record.selected
 *	- new: nextCell, prevCell, nextRow, prevRow
 *	- new: editChange(el, index, column, event)
 *	- new: method - overwrite default ajax method (see also w2utils.settings.RESTfull)
@@ -227,7 +228,7 @@
 			// init toolbar
 			object.initToolbar();
 			// render if necessary
-			if ($(this).length != 0) {
+			if ($(this).length !== 0) {
 				object.render($(this)[0]);
 			}
 			// register new object
@@ -252,6 +253,7 @@
 
 		msgDelete	: 'Are you sure you want to delete selected records?',
 		msgNotJSON 	: 'Returned data is not in valid JSON format.',
+		msgAJAXerror: 'AJAX error. See console for more details.',
 		msgRefresh	: 'Refreshing...',
 
 		// for easy button overwrite
@@ -299,7 +301,7 @@
 			// check if property is nested - needed for speed
 			for (var o in obj) if (String(o).indexOf('.') != -1) hasDots = true;
 			// look for an item
-			for (var i=0; i<this.records.length; i++) {
+			for (var i = 0; i < this.records.length; i++) {
 				var match = true;
 				for (var o in obj) {
 					var val = this.records[i][o];
@@ -334,7 +336,7 @@
 		},
 
 		get: function (recid, returnIndex) {
-			for (var i=0; i<this.records.length; i++) {
+			for (var i = 0; i < this.records.length; i++) {
 				if (this.records[i].recid == recid) {
 					if (returnIndex === true) return i; else return this.records[i];
 				}
@@ -392,7 +394,7 @@
 		},
 
 		getColumn: function (field, returnIndex) {
-			for (var i=0; i<this.columns.length; i++) {
+			for (var i = 0; i < this.columns.length; i++) {
 				if (this.columns[i].field == field) {
 					if (returnIndex === true) return i; else return this.columns[i];
 				}
@@ -473,7 +475,7 @@
 		},
 
 		getSearch: function (field, returnIndex) {
-			for (var i=0; i<this.searches.length; i++) {
+			for (var i = 0; i < this.searches.length; i++) {
 				if (this.searches[i].field == field) {
 					if (returnIndex === true) return i; else return this.searches[i];
 				}
@@ -973,16 +975,16 @@
 			var sel  = this.last.selection;
 			var cols = [];
 			for (var c in this.columns) cols.push(parseInt(c));
-			// if local data source and searched	
+			// if local data source and searched
 			sel.indexes = [];
 			if (!url && this.searchData.length !== 0) {
 				// local search applied
-				for (var i=0; i < this.last.searchIds.length; i++) {
+				for (var i = 0; i < this.last.searchIds.length; i++) {
 					sel.indexes.push(this.last.searchIds[i]);
 					if (this.selectType != 'row') sel.columns[this.last.searchIds[i]] = cols.slice(); // .slice makes copy of the array
 				}
 			} else {
-				for (var i=0; i < this.records.length; i++) {
+				for (var i = 0; i < this.records.length; i++) {
 					sel.indexes.push(i);
 					if (this.selectType != 'row') sel.columns[i] = cols.slice(); // .slice makes copy of the array
 				}
@@ -1334,10 +1336,10 @@
 				setTimeout(function () { el.change().focus(); }, 1);
 			}
 			// update field
-			if (this.last.search != '') { 
-				this.search(search.field, this.last.search); 
-			} else { 
-				this.last.field = search.field; 
+			if (this.last.search != '') {
+				this.search(search.field, this.last.search);
+			} else {
+				this.last.field = search.field;
 				this.last.caption = search.caption;
 			}
 			el.attr('placeholder', search.caption);
@@ -1537,27 +1539,29 @@
 			if (this.last.xhr_cmd == 'delete-records') event_name = 'deleted';
 			var eventData = this.trigger({ phase: 'before', target: this.name, type: event_name, xhr: this.last.xhr, status: status });
 			if (eventData.isCancelled === true) {
-				if (typeof callBack == 'function') callBack();
+				if (typeof callBack == 'function') callBack({ status: 'error', message: 'Request aborted.' });
 				return false;
 			}
 			// parse server response
+			var data;
 			var responseText = this.last.xhr.responseText;
 			if (status != 'error') {
 				// default action
 				if (typeof responseText != 'undefined' && responseText != '') {
-					var data;
 					// check if the onLoad handler has not already parsed the data
 					if (typeof responseText == "object") {
 						data = responseText;
-					} else {						
+					} else {
 						if (typeof obj.parser == 'function') {
 							data = obj.parser(responseText);
 							if (typeof data != 'object') {
 								console.log('ERROR: Your parser did not return proper object');
 							}
 						} else {
-							// $.parseJSON or $.getJSON did not work because it expect perfect JSON data - where everything is in double quotes
-							try { eval('data = '+ responseText); } catch (e) { }	
+							// $.parseJSON or $.getJSON did not work because those expect perfect JSON data - where everything is in double quotes
+							//
+							// TODO: avoid (potentially malicious) code injection from the response.
+							try { eval('data = '+ responseText); } catch (e) { }
 						}
 					}
 					// convert recids
@@ -1571,7 +1575,7 @@
 							status		 : 'error',
 							message		 : this.msgNotJSON,
 							responseText : responseText
-						}
+						};
 					}
 					if (data['status'] == 'error') {
 						obj.error(data['message']);
@@ -1604,7 +1608,12 @@
 					}
 				}
 			} else {
-				obj.error('AJAX Error. See console for more details.');
+				obj.error(this.msgAJAXerror);
+				data = {
+					status		 : 'error',
+					message		 : this.msgAJAXerror,
+					responseText : responseText
+				};
 			}
 			// event after
 			var url = (typeof this.url != 'object' ? this.url : this.url.get);
@@ -1617,7 +1626,7 @@
 			// do not refresh if loading on infinite scroll
 			if (this.last.xhr_offset == 0) this.refresh(); else this.scroll();
 			// call back
-			if (typeof callBack == 'function') callBack();
+			if (typeof callBack == 'function') callBack(data);
 		},
 
 		error: function (msg) {
@@ -1728,11 +1737,11 @@
 						'	'+ edit.inTag +
 						'>'+ html +'</select>' + edit.outTag);
 				el.find('select').focus()
-					.on('change', function (event) { 
+					.on('change', function (event) {
 						delete obj.last.move;
 					})
-					.on('blur', function (event) { 
-						obj.editChange.call(obj, this, index, column, event); 
+					.on('blur', function (event) {
+						obj.editChange.call(obj, this, index, column, event);
 					});
 			} else {
 				el.addClass('w2ui-editable')
@@ -1745,14 +1754,14 @@
 					.w2field(edit.type, $.extend(edit, { selected: val }))
 					.on('blur', function (event) {
 						if ($(this).data('focused')) return;
-						obj.editChange.call(obj, this, index, column, event); 
+						obj.editChange.call(obj, this, index, column, event);
 					});
 				if (value != null) el.find('input').val(val != 'object' ? val : '');
 			}
 			setTimeout(function () {
 				el.find('input, select')
-					.on('click', function (event) { 
-						event.stopPropagation(); 
+					.on('click', function (event) {
+						event.stopPropagation();
 					})
 					.on('keydown', function (event) {
 						var cancel = false;
@@ -1852,12 +1861,12 @@
 						if (cancel) if (event.preventDefault) event.preventDefault();
 					});
 				// focus and select
-				var tmp = el.find('input').focus();				
-				if (value != null) { 
+				var tmp = el.find('input').focus();
+				if (value != null) {
 					// set cursor to the end
-					tmp[0].setSelectionRange(tmp.val().length, tmp.val().length); 
+					tmp[0].setSelectionRange(tmp.val().length, tmp.val().length);
 				} else {
-					tmp.select();	
+					tmp.select();
 				}
 
 			}, 50);
@@ -1883,7 +1892,7 @@
 			if (el.type == 'checkbox') new_val = el.checked;
 			if (old_val != new_val && !(typeof old_val == 'undefined' && new_val == '')) {
 				// change event
-				var eventData = this.trigger({ 
+				var eventData = this.trigger({
 					phase: 'before', type: 'change', target: this.name, input_id: el.id, recid: rec.recid, index: index, column: column,
 					value_new: new_val, value_previous: (rec.changes ? rec.changes[col.field]: old_val), value_original: old_val
 				});
@@ -2746,7 +2755,7 @@
 			// set cell html and changed flag
 			cell.html(this.getCellHTML(index, col_ind));
 			if (rec.changes && typeof rec.changes[col.field] != 'undefined') {
-				cell.addClass('w2ui-changed'); 
+				cell.addClass('w2ui-changed');
 			} else {
 				cell.removeClass('w2ui-changed');
 			}
@@ -3074,7 +3083,7 @@
 					var ind1 = obj.get(mv.from, true);
 					var tmp  = obj.records[ind1];
 					obj.records.splice(ind1, 1);
-					var ind2 = obj.get(mv.to, true);					
+					var ind2 = obj.get(mv.to, true);
 					if (ind1 > ind2) obj.records.splice(ind2, 0, tmp); else obj.records.splice(ind2+1, 0, tmp);
 					$('#grid_'+ obj.name + '_ghost').remove();
 					obj.refresh();
@@ -3550,10 +3559,10 @@
 							} else {
 								obj.searchOpen();
 								event.originalEvent.stopPropagation();
-								function tmp_close() { 
-									if ($('#w2ui-overlay-searches-'+ obj.name).data('keepOpen') === true) return; 
-									tb.uncheck(id); 
-									$(document).off('click', 'body', tmp_close); 
+								function tmp_close() {
+									if ($('#w2ui-overlay-searches-'+ obj.name).data('keepOpen') === true) return;
+									tb.uncheck(id);
+									$(document).off('click', 'body', tmp_close);
 								}
 								$(document).on('click', 'body', tmp_close);
 							}
@@ -3792,7 +3801,7 @@
 				var percent = 0;
 				// gridMinWidth processiong
 				var restart = false;
-				for (var i=0; i<this.columns.length; i++) {
+				for (var i = 0; i < this.columns.length; i++) {
 					var col = this.columns[i];
 					if (typeof col.gridMinWidth != 'undefined') {
 						if (col.gridMinWidth > width_box && col.hidden !== true) {
@@ -3810,7 +3819,7 @@
 					return;
 				}
 				// assign PX column s
-				for (var i=0; i<this.columns.length; i++) {
+				for (var i = 0; i < this.columns.length; i++) {
 					var col = this.columns[i];
 					if (col.hidden) continue;
 					if (String(col.size).substr(String(col.size).length-2).toLowerCase() == 'px') {
@@ -3825,7 +3834,7 @@
 				}
 				// if sum != 100% -- reassign proportionally
 				if (percent != 100 && percent > 0) {
-					for (var i=0; i<this.columns.length; i++) {
+					for (var i = 0; i < this.columns.length; i++) {
 						var col = this.columns[i];
 						if (col.hidden) continue;
 						if (col.sizeType == '%') {
@@ -3834,7 +3843,7 @@
 					}
 				}
 				// calculate % columns
-				for (var i=0; i<this.columns.length; i++) {
+				for (var i = 0; i < this.columns.length; i++) {
 					var col = this.columns[i];
 					if (col.hidden) continue;
 					if (col.sizeType == '%') {
@@ -3850,7 +3859,7 @@
 			}
 			// fix margin of error that is due percentage calculations
 			var width_cols = 0;
-			for (var i=0; i<this.columns.length; i++) {
+			for (var i = 0; i < this.columns.length; i++) {
 				var col = this.columns[i];
 				if (col.hidden) continue;
 				if (typeof col.min == 'undefined') col.min = 20;
@@ -4014,9 +4023,9 @@
 		initOperator: function (el, search_ind) {
 			var obj		= this;
 			var search	= obj.searches[search_ind];
- 			var range	= $('#grid_'+ obj.name + '_range_'+ search_ind); 
-			var fld1	= $('#grid_'+ obj.name +'_field_'+ search_ind); 
-			var fld2	= fld1.parent().find('span input'); 
+ 			var range	= $('#grid_'+ obj.name + '_range_'+ search_ind);
+			var fld1	= $('#grid_'+ obj.name +'_field_'+ search_ind);
+			var fld2	= fld1.parent().find('span input');
 			if ($(el).val() == 'in') { fld1.w2field('clear'); } else { fld1.w2field(search.type); }
 			if ($(el).val() == 'between') { range.show(); fld2.w2field(search.type); } else { range.hide(); }
 		},
@@ -4048,7 +4057,7 @@
 					case 'time':
 					if (sdata && sdata.type == 'int' && sdata.operator == 'in') break;
 						$('#grid_'+ this.name +'_field_'+s).w2field(search.type, search.options);
-						$('#grid_'+ this.name +'_field2_'+s).w2field(search.type, search.options);						
+						$('#grid_'+ this.name +'_field2_'+s).w2field(search.type, search.options);
 						break;
 
 					case 'hex':
@@ -4063,7 +4072,7 @@
 						if (sdata) options.selected = sdata.value;
 						$('#grid_'+ this.name +'_field_'+s).w2field(search.type, options);
 						if (search.type == 'combo') {
-							$('#grid_'+ this.name +'_operator_'+s).val('begins');							
+							$('#grid_'+ this.name +'_operator_'+s).val('begins');
 						}
 						break;
 
@@ -4105,8 +4114,8 @@
 			}
 			// add on change event
 			$('#w2ui-overlay-searches-'+ this.name +' .w2ui-grid-searches *[rel=search]').on('keypress', function (evnt) {
-				if (evnt.keyCode == 13 && (evnt.ctrlKey || evnt.metaKey)) { 
-					obj.search(); 
+				if (evnt.keyCode == 13 && (evnt.ctrlKey || evnt.metaKey)) {
+					obj.search();
 					$().w2overlay();
 				}
 			});
@@ -4538,7 +4547,7 @@
 			var record 	= (summary !== true ? this.records[ind] : this.summary[ind]);
 			var data 	= this.getCellValue(ind, col_ind, summary);
 			var edit 	= col.editable;
-			// various renderers			
+			// various renderers
 			if (typeof col.render != 'undefined') {
 				if (typeof col.render == 'function') {
 					data = $.trim(col.render.call(this, record, ind, col_ind));
@@ -4660,13 +4669,13 @@
 			}
 			return val;
 		},
-		
+
 		nextCell: function (col_ind, editable) {
 			var check = col_ind + 1;
 			if (this.columns.length == check) return false;
 			if (editable === true) {
 				var edit = this.columns[check].editable;
-				if (this.columns[check].hidden || typeof edit == 'undefined' 
+				if (this.columns[check].hidden || typeof edit == 'undefined'
 					|| (edit && ['checkbox', 'check'].indexOf(edit.type) != -1)) return this.nextCell(check, editable);
 			}
 			return check;
@@ -4677,11 +4686,11 @@
 			if (check < 0) return false;
 			if (editable === true) {
 				var edit = this.columns[check].editable;
-				if (this.columns[check].hidden || typeof edit == 'undefined' 
+				if (this.columns[check].hidden || typeof edit == 'undefined'
 					|| (edit && ['checkbox', 'check'].indexOf(edit.type) != -1)) return this.prevCell(check, editable);
 			}
 			return check;
-		}, 
+		},
 
 		nextRow: function (ind) {
 			if ((ind + 1 < this.records.length && this.last.searchIds.length == 0) // if there are more records
