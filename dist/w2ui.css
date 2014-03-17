@@ -666,7 +666,7 @@ select {
 .w2ui-field-helper {
   position: absolute;
   display: inline-block;
-  pointer-events: none;
+  /* pointer-events: none; - do not use as IE does not support it */
   -webkit-user-select: none;
   -moz-user-select: none;
   -ms-user-select: none;
@@ -693,6 +693,7 @@ select {
 *	ARROWS 
 */
 .arrow-up {
+  background: none;
   width: 0;
   height: 0;
   border-left: 4px solid transparent;
@@ -705,6 +706,7 @@ select {
   line-height: 0;
 }
 .arrow-down {
+  background: none;
   width: 0;
   height: 0;
   border-left: 4px solid transparent;
@@ -714,6 +716,7 @@ select {
   line-height: 0;
 }
 .arrow-left {
+  background: none;
   width: 0;
   height: 0;
   border-bottom: 4px solid transparent;
@@ -726,6 +729,7 @@ select {
   line-height: 0;
 }
 .arrow-right {
+  background: none;
   width: 0;
   height: 0;
   border-bottom: 4px solid transparent;
@@ -1113,8 +1117,14 @@ select {
 }
 .w2ui-layout > div .w2ui-panel .w2ui-panel-title {
   padding: 5px;
-  background-color: #f0f0f0;
-  border-bottom: 1px solid #c0c0c0;
+  background-image: -webkit-linear-gradient(#dae6f3, #c2d5ed);
+  background-image: -moz-linear-gradient(#dae6f3, #c2d5ed);
+  background-image: -ms-linear-gradient(#dae6f3, #c2d5ed);
+  background-image: -o-linear-gradient(#dae6f3, #c2d5ed);
+  background-image: linear-gradient(#dae6f3, #c2d5ed);
+  filter: progid:dximagetransform.microsoft.gradient(startColorstr='#ffdae6f3', endColorstr='#ffc2d5ed', GradientType=0);
+  border: 1px solid #b9cee9;
+  border-bottom: 1px solid #99bbe8;
 }
 .w2ui-layout > div .w2ui-panel .w2ui-panel-tabs {
   position: absolute;

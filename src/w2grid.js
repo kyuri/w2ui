@@ -49,6 +49,7 @@
 *	- change: rec.changes = {} and removed rec.changed
 *	- record.style can be a string or an object (for cell formatting)
 *	- col.resizable = true by default
+*	- new: prepareData();
 *
 ************************************************************************/
 
@@ -541,14 +542,30 @@
 			if ($.isEmptyObject(this.sortData)) return;
 			var time = (new Date()).getTime();
 			var obj = this;
+			// process date fields
+			obj.prepareData();
+			// process sortData
+			for (var s in this.sortData) {
+				var column = this.getColumn(this.sortData[s].field); 
+				if (!column) return;
+				if (column.render && ['date', 'age'].indexOf(column.render) != -1) {
+					this.sortData[s]['field_'] = column.field + '_';
+				}
+				if (column.render && ['time'].indexOf(column.render) != -1) {
+					this.sortData[s]['field_'] = column.field + '_';
+				}
+			}
+			// process sort
 			this.records.sort(function (a, b) {
 				var ret = 0;
 				for (var s in obj.sortData) {
-					var aa = a[obj.sortData[s].field];
-					var bb = b[obj.sortData[s].field];
-					if (String(obj.sortData[s].field).indexOf('.') != -1) {
-						aa = obj.parseField(a, obj.sortData[s].field);
-						bb = obj.parseField(b, obj.sortData[s].field);
+					var fld = obj.sortData[s].field;
+					if (obj.sortData[s].field_) fld = obj.sortData[s].field_;
+					var aa  = a[fld];
+					var bb  = b[fld];
+					if (String(fld).indexOf('.') != -1) {
+						aa = obj.parseField(a, fld);
+						bb = obj.parseField(b, fld);
 					}
 					if (typeof aa == 'string') aa = $.trim(aa.toLowerCase());
 					if (typeof bb == 'string') bb = $.trim(bb.toLowerCase());
@@ -556,6 +573,8 @@
 					if (aa < bb) ret = (obj.sortData[s].direction == 'asc' ? -1 : 1);
 					if (typeof aa != 'object' && typeof bb == 'object') ret = -1;
 					if (typeof bb != 'object' && typeof aa == 'object') ret = 1;
+					if (aa == null && bb != null) ret = 1;	// all nuls and undefined on bottom
+					if (aa != null && bb == null) ret = -1;
 					if (ret != 0) break;
 				}
 				return ret;
@@ -576,6 +595,8 @@
 			this.total = this.records.length;
 			// mark all records as shown
 			this.last.searchIds = [];
+			// prepare date/time fields
+			this.prepareData();
 			// hide records that did not match
 			if (this.searchData.length > 0 && !url) {
 				this.total = 0;
@@ -600,11 +621,14 @@
 							case 'is':
  								if (rec[search.field] == sdata.value) fl++; // do not hide record
 								if (search.type == 'date') {
-									var tmp = new Date(Number(val1)); // create date
-									val1 = (new Date(tmp.getFullYear(), tmp.getMonth(), tmp.getDate())).getTime(); // drop time
-									val2 = Number(val2);
-									var val3 = Number(val1) + 86400000; // 1 day
-									if (val2 >= val1 && val2 <= val3) fl++;
+									var val1 = w2utils.formatDate(rec[search.field + '_'], 'yyyy-mm-dd');
+									var val2 = w2utils.formatDate(val2, 'yyyy-mm-dd');
+									if (val1 == val2) fl++;
+								}
+								if (search.type == 'time') {
+									var val1 = w2utils.formatTime(rec[search.field + '_'], 'h24:mi');
+									var val2 = w2utils.formatTime(val2, 'h24:mi');
+									if (val1 == val2) fl++;
 								}
 								break;
 							case 'between':
@@ -612,9 +636,18 @@
 									if (parseFloat(rec[search.field]) >= parseFloat(val2) && parseFloat(rec[search.field]) <= parseFloat(val3)) fl++;
 								}
 								if (search.type == 'date') {
-									var tmp = new Date(Number(val3)); // create date
-									val3 = (new Date(tmp.getFullYear(), tmp.getMonth(), tmp.getDate())).getTime(); // drop time
-									var val3 = Number(val3) + 86400000; // 1 day
+									var val1 = rec[search.field + '_'];
+									var val2 = w2utils.isDate(val2, w2utils.settings.date_format, true);
+									var val3 = w2utils.isDate(val3, w2utils.settings.date_format, true);
+									if (val3 != null) val3 = new Date(val3.getTime() + 86400000); // 1 day
+									if (val1 >= val2 && val1 < val3) fl++;
+								}
+								if (search.type == 'time') {
+									var val1 = rec[search.field + '_'];
+									var val2 = w2utils.isTime(val2, true);
+									var val3 = w2utils.isTime(val3, true);
+									val2 = (new Date()).setHours(val2.hours, val2.minutes, val2.seconds ? val2.seconds : 0, 0);
+									val3 = (new Date()).setHours(val3.hours, val3.minutes, val3.seconds ? val3.seconds : 0, 0);
 									if (val1 >= val2 && val1 < val3) fl++;
 								}
 								break;
@@ -850,6 +883,7 @@
 		select: function () {
 			var selected = 0;
 			var sel	= this.last.selection;
+			if (!this.multiSelect) this.selectNone();
 			for (var a = 0; a < arguments.length; a++) {
 				var recid	= typeof arguments[a] == 'object' ? arguments[a].recid : arguments[a];
 				var record	= this.get(recid);
@@ -872,6 +906,7 @@
 					if (!w2utils.isInt(col)) { // select all columns
 						var cols = [];
 						for (var c in this.columns) { if (this.columns[c].hidden) continue; cols.push({ recid: recid, column: parseInt(c) }); }
+						if (!this.multiSelect) cols = cols.splice(0, 1);
 						return this.select.apply(this, cols);
 					}
 					var s = sel.columns[index] || [];
@@ -1039,6 +1074,7 @@
 			} else {
 				for (var s in sel.indexes) {
 					var cols = sel.columns[sel.indexes[s]];
+					if (!this.records[sel.indexes[s]]) continue;
 					for (var c in cols) {
 						ret.push({ recid: this.records[sel.indexes[s]].recid, index: parseInt(sel.indexes[s]), column: cols[c] });
 					}
@@ -1102,11 +1138,11 @@
 						// conver date to unix time
 						try {
 							if (search.type == 'date' && operator == 'between') {
-								tmp.value[0] = w2utils.isDate(value1, w2utils.settings.date_format, true).getTime();
-								tmp.value[1] = w2utils.isDate(value2, w2utils.settings.date_format, true).getTime();
+								tmp.value[0] = value1; // w2utils.isDate(value1, w2utils.settings.date_format, true).getTime();
+								tmp.value[1] = value2; // w2utils.isDate(value2, w2utils.settings.date_format, true).getTime();
 							}
 							if (search.type == 'date' && operator == 'is') {
-								tmp.value = w2utils.isDate(value1, w2utils.settings.date_format, true).getTime();
+								tmp.value = value1; // w2utils.isDate(value1, w2utils.settings.date_format, true).getTime();
 							}
 						} catch (e) {
 
@@ -1184,10 +1220,8 @@
 						if (value != '') {
 							var op  = 'contains';
 							var val = value;
-							if (w2utils.isInt(value)) {
-								op  = 'is';
-								val = value;
-							}
+							if (w2utils.isInt(value)) op = 'is';
+							if (['date', 'time'].indexOf(search.type) != -1) op = 'is';
 							if (search.type == 'int' && value != '') {
 								if (String(value).indexOf('-') != -1) {
 									var tmp = value.split('-');
@@ -1248,7 +1282,7 @@
 			this.last.selection.columns	= {};
 			// -- clear all search field
 			this.searchClose();
-			this.set({ expanded: false });
+			this.set({ expanded: false }, true);
 			// apply search
 			if (url) {
 				this.last.xhr_offset = 0;
@@ -1454,7 +1488,7 @@
 				this.last.range_end		= null;
 				this.localSearch();
 				this.refresh();
-				if (typeof callBack == 'function') callBack();
+				if (typeof callBack == 'function') callBack({ status: 'success' });
 			}
 		},
 
@@ -1480,7 +1514,7 @@
 			// event before
 			if (cmd == 'get-records') {
 				var eventData = this.trigger({ phase: 'before', type: 'request', target: this.name, url: url, postData: params });
-				if (eventData.isCancelled === true) { if (typeof callBack == 'function') callBack(); return; }
+				if (eventData.isCancelled === true) { if (typeof callBack == 'function') callBack({ status: 'error', message: 'Request aborted.' }); return; }
 			} else {
 				var eventData = { url: url, postData: params };
 			}
@@ -1608,12 +1642,12 @@
 					}
 				}
 			} else {
-				obj.error(this.msgAJAXerror);
 				data = {
 					status		 : 'error',
 					message		 : this.msgAJAXerror,
 					responseText : responseText
 				};
+				obj.error(this.msgAJAXerror);
 			}
 			// event after
 			var url = (typeof this.url != 'object' ? this.url : this.url.get);
@@ -1634,7 +1668,7 @@
 			// let the management of the error outside of the grid
 			var eventData = this.trigger({ target: this.name, type: 'error', message: msg , xhr: this.last.xhr });
 			if (eventData.isCancelled === true) {
-				if (typeof callBack == 'function') callBack();
+				if (typeof callBack == 'function') callBack({ status: 'error', message: 'Request aborted.' });
 				return;
 			}
 			w2alert(msg, 'Error');
@@ -1678,8 +1712,11 @@
 			var url = (typeof this.url != 'object' ? this.url : this.url.save);
 			if (url) {
 				this.request('save-records', { 'changes' : eventData.changes }, null,
-					function () {
-						obj.mergeChanges();
+					function (data) {
+						if (data.status !== 'error') {
+							// only merge changes, if save was successful
+							obj.mergeChanges();
+						}
 						// event after
 						obj.trigger($.extend(eventData, { phase: 'after' }));
 					}
@@ -1750,13 +1787,21 @@
 						'	column="'+ column +'" '+ edit.inTag +
 						'>' + edit.outTag);
 				if (value == null) el.find('input').val(val != 'object' ? val : '');
-				el.find('input')
-					.w2field(edit.type, $.extend(edit, { selected: val }))
-					.on('blur', function (event) {
-						if ($(this).data('focused')) return;
-						obj.editChange.call(obj, this, index, column, event);
+				// init w2field
+				var input = el.find('input').get(0);
+				$(input).w2field(edit.type, $.extend(edit, { selected: val }))
+				// add blur listener
+				setTimeout(function () {
+					var tmp = input;
+					if (edit.type == 'list') {
+						tmp = $($(input).data('w2field').helpers.focus).find('input');
+						if (val != 'object' && val != '') tmp.val(val).css({ opacity: 1 }).prev().css({ opacity: 1 });
+					}
+					$(tmp).on('blur', function (event) {
+						obj.editChange.call(obj, input, index, column, event);
 					});
-				if (value != null) el.find('input').val(val != 'object' ? val : '');
+				}, 10);
+				if (value != null) $(input).val(val != 'object' ? val : '');
 			}
 			setTimeout(function () {
 				el.find('input, select')
@@ -1801,7 +1846,6 @@
 								break;
 
 							case 13: // enter
-								if ($(this).data('focused')) return;
 								this.blur();
 								var next = event.shiftKey ? obj.prevRow(index) : obj.nextRow(index);
 								if (next != null && next != index) {
@@ -1869,7 +1913,7 @@
 					tmp.select();
 				}
 
-			}, 50);
+			}, 1);
 			// event after
 			obj.trigger($.extend(eventData, { phase: 'after' }));
 		},
@@ -2011,7 +2055,7 @@
 			obj.last.sel_recid = recid;
 			obj.last.sel_type  = 'click';
 			// multi select with shif key
-			if (event.shiftKey && sel.length > 0) {
+			if (event.shiftKey && sel.length > 0 && obj.multiSelect) {
 				if (sel[0].recid) {
 					var start = this.get(sel[0].recid, true);
 					var end   = this.get(recid, true);
@@ -2108,7 +2152,14 @@
 			var rec 	= obj.get(recid);
 			var recEL	= $('#grid_'+ obj.name +'_rec_'+ (ind !== null ? w2utils.escapeId(obj.records[ind].recid) : 'none'));
 			var cancel  = false;
-			switch (event.keyCode) {
+			var key 	= event.keyCode;
+			var shiftKey= event.shiftKey;
+			if (key == 9) { // tab key
+				if (event.shiftKey) key = 37; else key = 39; // replace with arrows
+				shiftKey = false;
+				cancel   = true;
+			}
+			switch (key) {
 				case 8:  // backspace
 				case 46: // delete
 					obj.delete();
@@ -2180,7 +2231,7 @@
 					} else {
 						var prev = obj.prevCell(columns[0]);
 						if (prev !== false) {
-							if (event.shiftKey) {
+							if (shiftKey && obj.multiSelect) {
 								if (tmpUnselect()) return;
 								var tmp    = [];
 								var newSel = [];
@@ -2199,11 +2250,12 @@
 								obj.unselect.apply(obj, unSel);
 								obj.select.apply(obj, newSel);
 							} else {
+								event.shiftKey = false;
 								obj.click({ recid: recid, column: prev }, event);
 							}
 						} else {
 							// if selected more then one, then select first
-							if (!event.shiftKey) {
+							if (!shiftKey) {
 								for (var s=1; s<sel.length; s++) obj.unselect(sel[s]);
 							}
 						}
@@ -2211,7 +2263,6 @@
 					cancel = true;
 					break;
 
-				case 9:  // tab
 				case 39: // right
 					if (empty) break;
 					if (this.selectType == 'row') {
@@ -2220,7 +2271,7 @@
 					} else {
 						var next = obj.nextCell(columns[columns.length-1]);
 						if (next !== false) {
-							if (event.shiftKey && event.keyCode == 39) {
+							if (shiftKey && key == 39 && obj.multiSelect) {
 								if (tmpUnselect()) return;
 								var tmp    = [];
 								var newSel = [];
@@ -2243,7 +2294,7 @@
 							}
 						} else {
 							// if selected more then one, then select first
-							if (!event.shiftKey) {
+							if (!shiftKey) {
 								for (var s=0; s<sel.length-1; s++) obj.unselect(sel[s]);
 							}
 						}
@@ -2270,7 +2321,7 @@
 								break;
 							}
 						}
-						if (event.shiftKey) { // expand selection
+						if (shiftKey && obj.multiSelect) { // expand selection
 							if (tmpUnselect()) return;
 							if (obj.selectType == 'row') {
 								if (obj.last.sel_ind > prev && obj.last.sel_ind != ind2) {
@@ -2298,7 +2349,7 @@
 						if (event.preventDefault) event.preventDefault();
 					} else {
 						// if selected more then one, then select first
-						if (!event.shiftKey) {
+						if (!shiftKey) {
 							for (var s=1; s<sel.length; s++) obj.unselect(sel[s]);
 						}
 						// jump out of subgird (if first record)
@@ -2334,7 +2385,7 @@
 					// move to the next record
 					var next = obj.nextRow(ind2);
 					if (next != null) {
-						if (event.shiftKey) { // expand selection
+						if (shiftKey && obj.multiSelect) { // expand selection
 							if (tmpUnselect()) return;
 							if (obj.selectType == 'row') {
 								if (this.last.sel_ind < next && this.last.sel_ind != ind) {
@@ -2362,7 +2413,7 @@
 						cancel = true;
 					} else {
 						// if selected more then one, then select first
-						if (!event.shiftKey) {
+						if (!shiftKey) {
 							for (var s=0; s<sel.length-1; s++) obj.unselect(sel[s]);
 						}
 						// jump out of subgrid (if last record in subgrid)
@@ -2408,12 +2459,12 @@
 			}
 			var tmp = [187, 189, 32]; // =-spacebar
 			for (var i=48; i<=90; i++) tmp.push(i); // 0-9,a-z,A-Z
-			if (tmp.indexOf(event.keyCode) != -1 && !event.ctrlKey && !event.metaKey && !cancel) {
+			if (tmp.indexOf(key) != -1 && !event.ctrlKey && !event.metaKey && !cancel) {
 				if (columns.length == 0) columns.push(0);
-				var tmp = String.fromCharCode(event.keyCode);
-				if (event.keyCode == 187) tmp = '=';
-				if (event.keyCode == 189) tmp = '-';
-				if (!event.shiftKey) tmp = tmp.toLowerCase();
+				var tmp = String.fromCharCode(key);
+				if (key == 187) tmp = '=';
+				if (key == 189) tmp = '-';
+				if (!shiftKey) tmp = tmp.toLowerCase();
 				obj.editField(recid, columns[0], tmp, event);
 				cancel = true;
 			}
@@ -2966,6 +3017,7 @@
 			function mouseStart (event) {
 				if ($(event.target).parents().hasClass('w2ui-head') || $(event.target).hasClass('w2ui-head')) return;
 				if (obj.last.move && obj.last.move.type == 'expand') return;
+				if (!obj.multiSelect) return;
 				obj.last.move = {
 					x		: event.screenX,
 					y		: event.screenY,
@@ -3250,8 +3302,10 @@
 					}).addClass( '.w2ui-grid-ghost' ).animate({
 							width: selectedCol.width(),
 							height: $(obj.box).find('.w2ui-grid-body:first').height(),
+							left : event.pageX,
+							top : event.pageY,
 							opacity: .8
-						}, 300 );
+						}, 0 );
 
 					//establish current offsets
 					_dragData.offsets = [];
@@ -4055,9 +4109,13 @@
 					case 'percent':
 					case 'date':
 					case 'time':
-					if (sdata && sdata.type == 'int' && sdata.operator == 'in') break;
+						if (sdata && sdata.type == 'int' && sdata.operator == 'in') break;
 						$('#grid_'+ this.name +'_field_'+s).w2field(search.type, search.options);
 						$('#grid_'+ this.name +'_field2_'+s).w2field(search.type, search.options);
+						setTimeout(function () { // convert to date if it is number
+							$('#grid_'+ obj.name +'_field_'+s).keydown(); 
+							$('#grid_'+ obj.name +'_field2_'+s).keydown(); 
+						}, 1);
 						break;
 
 					case 'hex':
@@ -4569,8 +4627,8 @@
 						data = '<div>' + (data !== '' ? prefix + w2utils.formatNumber(Number(data).toFixed(tmp[1])) + suffix : '') + '</div>';
 					}
 					if (tmp[0] == 'time') {
-						if (typeof tmp[1] == 'undefined' || tmp[1] == '') tmp[1] = w2utils.settings.time_display;
-						data = '<div>' + prefix + w2utils.formatTime(data, tmp[1]) + suffix + '</div>';
+						if (typeof tmp[1] == 'undefined' || tmp[1] == '') tmp[1] = w2utils.settings.time_format;
+						data = '<div>' + prefix + w2utils.formatTime(data, tmp[1] == 'h12' ? 'hh:mi pm': 'h24:min') + suffix + '</div>';
 					}
 					if (tmp[0] == 'date') {
 						if (typeof tmp[1] == 'undefined' || tmp[1] == '') tmp[1] = w2utils.settings.date_display;
@@ -4668,6 +4726,45 @@
 				val = '';
 			}
 			return val;
+		},
+
+		prepareData: function () {
+			// loops thru records and prepares date and time objects
+			for (var r in this.records) {
+				var rec = this.records[r];
+				for (var c in this.columns) {
+					var column = this.columns[c];
+					if (rec[column.field] == null || typeof column.render != 'string') continue;
+					// number
+					if (['number', 'int', 'float', 'money', 'currency', 'percent'].indexOf(column.render.split(':')[0])  != -1) {
+						if (typeof rec[column.field] != 'number') rec[column.field] = parseFloat(rec[column.field]);
+					}
+					// date
+					if (['date', 'age'].indexOf(column.render) != -1) {
+						if (!rec[column.field + '_']) {
+							var dt = rec[column.field];
+							if (w2utils.isInt(dt)) dt = parseInt(dt);
+							rec[column.field + '_'] = new Date(dt);
+						}
+					}
+					// time
+					if (['time'].indexOf(column.render) != -1) {
+						if (w2utils.isTime(rec[column.field])) { // if string
+							var tmp = w2utils.isTime(rec[column.field], true);
+							var dt = new Date();
+							dt.setHours(tmp.hours, tmp.minutes, (tmp.seconds ? tmp.seconds : 0), 0); // sets hours, min, sec, mills
+							if (!rec[column.field + '_']) rec[column.field + '_'] = dt;
+						} else { // if date object
+							var tmp = rec[column.field];
+							if (w2utils.isInt(tmp)) tmp = parseInt(tmp);
+							var tmp = (tmp != null ? new Date(tmp) : new Date());
+							var dt  = new Date();
+							dt.setHours(tmp.getHours(), tmp.getMinutes(), tmp.getSeconds(), 0); // sets hours, min, sec, mills
+							if (!rec[column.field + '_']) rec[column.field + '_'] = dt;
+						}
+					}
+				}
+			}
 		},
 
 		nextCell: function (col_ind, editable) {

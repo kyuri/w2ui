@@ -14,6 +14,7 @@
 *	- arrows no longer work (for int)
 *	- add postData for autocomplete
 *	- form to support cutstom types
+*	- easy way to add icons
 *
 * == 1.4 Changes ==
 *	- select - for select, list - for drop down (needs this in grid)
@@ -27,9 +28,11 @@
 *	- added enum.style and file.style attributes
 *	- test all fields as Read Only
 *	- added openOnFocus
-*	- change: showAll -> applyFilter
+*	- deprecated -- change: showAll -> applyFilter
 *	- color: select with keyboard
 *	- enum: addNew event
+*	- added icon and onIconClick
+*	- new: clearCache
 *
 ************************************************************************/
 
@@ -51,6 +54,7 @@
 		this.onRemove	= options.onRemove		|| null;
 		this.onMouseOver= options.onMouseOver	|| null;
 		this.onMouseOut	= options.onMouseOut	|| null;
+		this.onIconClick= options.onIconClick	|| null;
 		this.tmp		= {}; // temp object
 		// clean up some options
 		delete this.options.type;
@@ -61,6 +65,7 @@
 		delete this.options.onClick;
 		delete this.options.onMouseOver;
 		delete this.options.onMouseOut;
+		delete this.options.onIconClick;
 		// extend with defaults
 		$.extend(true, this, w2obj.field);
 	};
@@ -272,18 +277,21 @@
 						placeholder		: '',
 						url 			: null, 		// url to pull data from
 						prepopulate		: true,
-						cacheMax		: 500,
+						cacheMax		: 250,
 						maxDropHeight 	: 350,			// max height for drop down menu
 						match			: 'begins with',// ['contains', 'is', 'begins with', 'ends with']
 						silent			: true,
+						icon			: null,
+						iconStyle		: '',
 						onSearch		: null,			// when search needs to be performed
 						onRequest		: null,			// when request is submitted
 						onLoad			: null,			// when data is received
 						onError			: null,			// when data fails to load due to server error or other failure modes
+						onIconClick		: null,
 						renderDrop		: null, 		// render function for drop down item
+						prefix			: '',
 						suffix			: '',
 						openOnFocus 	: false,		// if to show overlay onclick or when typing
-						applyFilter		: true,
 						markSearch 		: false
 					};
 					if (this.type == 'list') {
@@ -302,7 +310,15 @@
 					if (!$.isPlainObject(options.selected)) options.selected = {};
 					$(this.el).data('selected', options.selected);
 					if (options.url) this.request(0);
+					if (options.icon) {
+						options.prefix = '<span class="w2ui-icon '+ options.icon +'" '+
+							'	style="cursor: pointer; margin: -2px 5px 0px 0px; font-size: 14px; color: #7F98AD;' + options.iconStyle +'">'+
+							'</span>';
+					}
+					if (this.type == 'list') this.addFocus();
+					this.addPrefix();
 					this.addSuffix();
+					setTimeout(function () { obj.refresh();	}, 10); // need this for icon refresh
 					$(this.el).attr('placeholder', options.placeholder).attr('autocomplete', 'off');
 					if (typeof options.selected.text != 'undefined') $(this.el).val(options.selected.text);
 					break;
@@ -315,14 +331,13 @@
 						max 			: 0,			// max number of selected items, 0 - unlim
 						url 			: null, 		// not implemented
 						prepopulate		: true,			// if true pull records from url during init
-						cacheMax		: 500,
+						cacheMax		: 250,
 						maxWidth		: 250,			// max width for a single item
 						maxHeight		: 350,			// max height for input control to grow
 						maxDropHeight 	: 350,			// max height for drop down menu
 						match			: 'contains',	// ['contains', 'is', 'begins with', 'ends with']
 						silent			: true,
 						openOnFocus 	: false,		// if to show overlay onclick or when typing
-						applyFilter		: true,
 						markSearch 		: true,
 						renderDrop		: null, 		// render function for drop down item
 						renderItem		: null,			// render selected item
@@ -460,6 +475,30 @@
 			var selected = $(this.el).data('selected');
 			var time 	 = (new Date()).getTime();
 			// enum
+			if (['list'].indexOf(this.type) != -1) {
+				$(obj.el).parent().css('white-space', 'nowrap'); // needs this for arrow alway to appear on the right side
+				// hide focus and show text
+				if (obj.helpers.prefix) obj.helpers.prefix.hide();
+				setTimeout(function () {
+					var focus = obj.helpers.focus.find('input');
+					if ($(focus).val() == '') {
+						$(focus).css('opacity', 0).prev().css('opacity', 0);
+						$(obj.el).val(selected && selected.text != null ? selected.text : '');
+						$(obj.el).attr('placeholder', $(obj.el).attr('_placeholder'));
+						// if empty show no icon
+						if ($.isEmptyObject(selected)) {
+							if (obj.helpers && obj.helpers.prefix) obj.helpers.prefix.hide();
+						} else {
+							if (obj.helpers && obj.helpers.prefix) obj.helpers.prefix.show();
+						}
+					} else {
+						$(focus).css('opacity', 1).prev().css('opacity', 1);
+						if (obj.helpers && obj.helpers.prefix) obj.helpers.prefix.hide();
+						$(obj.el).val('');
+						$(obj.el).attr('_placeholder', $(obj.el).attr('placeholder')).removeAttr('placeholder');
+					}
+				}, 1);
+			}
 			if (['enum', 'file'].indexOf(this.type) != -1) {
 				var html = '';
 				for (var s in selected) {
@@ -598,7 +637,10 @@
 		},
 
 		reset: function () {
+			var obj  = this;
+			var type = this.type;
 			this.clear();
+			this.type = type;
 			this.init();
 		},
 
@@ -696,6 +738,10 @@
 				if ($(obj.el).attr('readonly')) return;
 				if ($("#w2ui-overlay").length > 0) $('#w2ui-overlay')[0].hide();
 				setTimeout(function () {
+					if (obj.type == 'list' && $(obj.el).is(':focus')) {
+						$(obj.helpers.focus).find('input').focus();
+						return;
+					}
 					obj.search();
 					setTimeout(function () { obj.updateOverlay(); }, 1);
 				}, 1);
@@ -725,6 +771,9 @@
 			}
 			// date or time
 			if (['date', 'time'].indexOf(obj.type) != -1) {
+				if (w2utils.isInt(obj.el.value)) {
+					$(obj.el).val(w2utils.formatDate(new Date(parseInt(obj.el.value)), options.format)).change();
+				}
 				// check if in range
 				if (val !== '' && !obj.inRange(obj.el.value)) {
 					$(obj.el).val('').removeData('selected').change();
@@ -785,7 +834,7 @@
 			var key 	= event.keyCode || (extra && extra.keyCode);
 			// numeric
 			if (['int', 'float', 'money', 'currency', 'percent'].indexOf(obj.type) != -1) {
-				if (!options.keyboard) return;
+				if (!options.keyboard || $(obj.el).attr('readonly')) return;
 				var cancel = false;
 				var val = parseFloat($(obj.el).val().replace(options.moneyRE, '')) || 0;
 				var inc = 1;
@@ -812,11 +861,14 @@
 			}
 			// date
 			if (obj.type == 'date') {
-				if (!options.keyboard) return;
+				if (!options.keyboard || $(obj.el).attr('readonly')) return;
 				var cancel  = false;
 				var daymil  = 24*60*60*1000;
 				var inc		= 1;
 				if (event.ctrlKey || event.metaKey) inc = 10;
+				if (w2utils.isInt(obj.el.value)) {
+					$(obj.el).val(w2utils.formatDate(new Date(parseInt(obj.el.value)), options.format)).change();
+				}
 				var dt = w2utils.isDate($(obj.el).val(), options.format, true);
 				if (!dt) { dt = new Date(); daymil = 0; }
 				switch (key) {
@@ -846,10 +898,13 @@
 			}
 			// time
 			if (obj.type == 'time') {
-				if (!options.keyboard) return;
+				if (!options.keyboard || $(obj.el).attr('readonly')) return;
 				var cancel  = false;
 				var inc		= 1;
 				if (event.ctrlKey || event.metaKey) inc = 60;
+				if (w2utils.isInt(obj.el.value)) {
+					$(obj.el).val(w2utils.formatTime(new Date(parseInt(obj.el.value)), options.format)).change();
+				}
 				var val = $(obj.el).val();
 				var time = obj.toMin(val) || obj.toMin((new Date()).getHours() + ':' + ((new Date()).getMinutes() - 1));
 				switch (key) {
@@ -875,6 +930,7 @@
 			}
 			// color
 			if (obj.type == 'color') {
+				if ($(obj.el).attr('readonly')) return;
 				// paste
 				if (event.keyCode == 86 && (event.ctrlKey || event.metaKey)) {
 					$(obj.el).prop('maxlength', 7);
@@ -920,14 +976,32 @@
 				if ($(obj.el).attr('readonly')) return;
 				var cancel		= false;
 				var selected	= $(obj.el).data('selected');
+				var focus 		= $(obj.helpers.focus).find('input');
+				if (obj.type == 'list') {
+					if ([37, 38, 39, 40].indexOf(key) == -1) obj.refresh(); // arrows
+				}
 				// apply arrows
 				switch (key) {
+					case 27: // escape
+						if (obj.type == 'list') {
+							if ($(focus).val() == '') {
+								$(obj.el).data('selected', {});
+							} else {
+								$(focus).val('');
+							}
+							obj.refresh();
+							event.stopPropagation(); // escape in field should not close popup
+						}
+						break;
+					case 37: // left
 					case 39: // right
-						if ($(obj.el).val() != '') break;
+						// cancel = true;
+						break;
 					case 13: // enter
+						if ($('#w2ui-overlay').length == 0) break; // no action if overlay not open
 						var item  = options.items[options.index];
 						var multi = $(obj.helpers.multi).find('input');
-						if (['enum'].indexOf(obj.type) != -1) {
+						if (obj.type == 'enum') {
 							if (item) {
 								// trigger event
 								var eventData = obj.trigger({ phase: 'before', type: 'add', target: obj.el, originalEvent: event.originalEvent, item: item });
@@ -964,6 +1038,10 @@
 						} else {
 							if (item) $(obj.el).data('selected', item).val(item.text).change();
 							if ($(obj.el).val() == '' && $(obj.el).data('selected')) $(obj.el).removeData('selected').val('').change();
+							if (obj.type == 'list') {
+								focus.val('');
+								obj.refresh();
+							}
 							// hide overlay
 							obj.tmp.force_hide = true;
 						}
@@ -1018,8 +1096,11 @@
 					event.preventDefault();
 					setTimeout(function () {
 						// set cursor to the end
-						if (['enum'].indexOf(obj.type) != -1) {
+						if (obj.type == 'enum') {
 							var tmp = obj.helpers.multi.find('input').get(0);
+							tmp.setSelectionRange(tmp.value.length, tmp.value.length);
+						} else if (obj.type == 'list') {
+							var tmp = obj.helpers.focus.find('input').get(0);
 							tmp.setSelectionRange(tmp.value.length, tmp.value.length);
 						} else {
 							obj.el.setSelectionRange(obj.el.value.length, obj.el.value.length);
@@ -1028,17 +1109,18 @@
 					return;
 				}
 				// expand input
-				if (['enum'].indexOf(obj.type) != -1) {
+				if (obj.type == 'enum') {
 					var input  = obj.helpers.multi.find('input');
 					var search = input.val();
 					input.width(((search.length + 2) * 8) + 'px');
 				}
 				// run search
-				setTimeout(function () {
-					obj.request();
-					// default behaviour
-					obj.search();
-				}, 1);
+				if ([16, 17, 18, 20, 37, 39, 91].indexOf(key) == -1) { // no refreah on crtl, shift, left/right arrows, etc
+					setTimeout(function () {
+						obj.request();
+						obj.search();
+					}, 1);
+				}
 			}
 		},
 
@@ -1048,14 +1130,26 @@
 			}
 		},
 
+		clearCache: function () {
+			var options 		= this.options;
+			options.items 		= [];
+			this.tmp.xhr_loading = false;
+			this.tmp.xhr_search  = '';
+			this.tmp.xhr_total	= -1;
+			this.search();
+		},
+
 		request: function (interval) {
 			var obj 	 = this;
 			var options  = this.options;
 			var search 	 = $(obj.el).val() || '';
 			if (obj.type == 'enum') {
 				var tmp = $(obj.helpers.multi).find('input');
-				if (tmp.length == 0) return;
-				search = tmp.val();
+				if (tmp.length == 0) search = ''; else search = tmp.val();
+			}
+			if (obj.type == 'list') {
+				var tmp = $(obj.helpers.focus).find('input');
+				if (tmp.length == 0) search = ''; else search = tmp.val();
 			}
 			if (search == '' && !options.prepopulate) return;
 			if (typeof interval == 'undefined') interval = 350;
@@ -1122,11 +1216,7 @@
 							// default behavior
 							console.log('ERROR: server communication failed. The server should return', { status: 'success', items: [{ id: 1, text: 'item' }] }, ', instead the AJAX request produced this: ', errorObj);
 							// reset stats
-							options.items 		= [];
-							obj.tmp.xhr_loading = false;
-							obj.tmp.xhr_search  = '';
-							obj.tmp.xhr_total	= -1;
-							obj.search();
+							obj.clearCache();
 							// event after
 							obj.trigger($.extend(eventData2, { phase: 'after' }));
 						});
@@ -1142,8 +1232,13 @@
 			var search 	= $(obj.el).val();
 			var target	= obj.el;
 			var ids = [];
-			if (['enum'].indexOf(obj.type) != -1) {
+			if (obj.type == 'enum') {
 				target = $(obj.helpers.multi).find('input');
+				search = target.val();
+				for (var s in options.selected) { ids.push(options.selected[s].id); }
+			}
+			if (obj.type == 'list') {
+				target = $(obj.helpers.focus).find('input');
 				search = target.val();
 				for (var s in options.selected) { ids.push(options.selected[s].id); }
 			}
@@ -1161,7 +1256,6 @@
 					try {
 						var re = new RegExp(prefix + search + suffix, 'i');
 						if (re.test(item.text) || item.text == '...') item.hidden = false; else item.hidden = true;
-						if (options.applyFilter !== true) item.hidden = false;
 					} catch (e) {}
 					// do not show selected items
 					if (obj.type == 'enum' && $.inArray(item.id, ids) != -1) item.hidden = true;
@@ -1191,6 +1285,7 @@
 			var options = this.options;
 			// color
 			if (this.type == 'color') {
+				if ($(obj.el).attr('readonly')) return;
 				if ($('#w2ui-overlay').length == 0) {
 					$(obj.el).w2overlay(obj.getColorHTML());
 				} else {
@@ -1214,6 +1309,7 @@
 			}
 			// date
 			if (this.type == 'date') {
+				if ($(obj.el).attr('readonly')) return;
 				if ($('#w2ui-overlay').length == 0) {
 					$(obj.el).w2overlay('<div class="w2ui-reset w2ui-calendar" onclick="event.stopPropagation();"></div>', {
 						css: { "background-color": "#f5f5f5" }
@@ -1249,6 +1345,7 @@
 			}
 			// date
 			if (this.type == 'time') {
+				if ($(obj.el).attr('readonly')) return;
 				if ($('#w2ui-overlay').length == 0) {
 					$(obj.el).w2overlay('<div class="w2ui-reset w2ui-calendar-time" onclick="event.stopPropagation();"></div>', {
 						css: { "background-color": "#fff" }
@@ -1286,6 +1383,9 @@
 					el		= $(this.helpers.multi);
 					input	= $(el).find('input');
 				}
+				if (this.type == 'list') {
+					input	= $(this.helpers.focus).find('input');
+				}
 				if ($(input).is(':focus')) {
 					if (options.openOnFocus === false && $(input).val() == '' && obj.tmp.force_open !== true) {
 						$().w2overlay();
@@ -1297,6 +1397,7 @@
 						return;
 					}
 					if ($(input).val() != '') delete obj.tmp.force_open;
+					if ($('#w2ui-overlay').length == 0) options.index = 0;
 					$(el).w2menu('refresh', $.extend(true, {}, options, {
 						search		: false,
 						render		: options.renderDrop,
@@ -1322,6 +1423,10 @@
 								}
 							} else {
 								$(obj.el).data('selected', event.item).val(event.item.text).change();
+								if (obj.helpers.focus) {
+									obj.helpers.focus.find('input').val('');
+									obj.refresh(); 
+								}
 							}
 						}
 					}));
@@ -1399,16 +1504,21 @@
 			setTimeout(function () {
 				var helper;
 				var tmp = $(obj.el).data('tmp') || {};
+				if (tmp['old-padding-left']) $(obj.el).css('padding-left', tmp['old-padding-left']);
 				tmp['old-padding-left'] = $(obj.el).css('padding-left');
 				$(obj.el).data('tmp', tmp);
 				if (obj.options.prefix !== '') {
+					// remove if already displaed
+					if (obj.helpers.prefix) $(obj.helpers.prefix).remove();
+					// add fresh
 					$(obj.el).before(
 						'<div class="w2ui-field-helper">'+
 							obj.options.prefix +
 						'</div>'
 					);
 					helper = $(obj.el).prev();
-					helper.css({
+					helper
+						.css({
 							'color'				: $(obj.el).css('color'),
 							'font-family'		: $(obj.el).css('font-family'),
 							'font-size'			: $(obj.el).css('font-size'),
@@ -1420,6 +1530,24 @@
 							'margin-bottom'		: (parseInt($(obj.el).css('margin-bottom'), 10) + 1) + 'px',
 							'margin-left'		: $(obj.el).css('margin-left'),
 							'margin-right'		: 0
+						})
+						.on('click', function (event) {
+							if (obj.options.icon && typeof obj.onIconClick == 'function') {
+								// event before
+								var eventData = obj.trigger({ phase: 'before', type: 'iconClick', target: obj.el, el: $(this).find('span.w2ui-icon')[0] });
+								if (eventData.isCancelled === true) return;
+								
+								// intentionally empty
+
+								// event after
+								obj.trigger($.extend(eventData, { phase: 'after' }));								
+							} else {
+								if (obj.type == 'list') {
+									$(obj.helpers.focus).find('input').focus();
+								} else {
+									$(obj.el).focus();
+								}
+							}
 						});
 					$(obj.el).css('padding-left', (helper.width() + parseInt($(obj.el).css('padding-left'), 10)) + 'px');
 					// remember helper
@@ -1433,10 +1561,14 @@
 			var helper, pr;
 			setTimeout(function () {
 				var tmp = $(obj.el).data('tmp') || {};
+				if (tmp['old-padding-right']) $(obj.el).css('padding-right', tmp['old-padding-right']);
 				tmp['old-padding-right'] = $(obj.el).css('padding-right');
 				$(obj.el).data('tmp', tmp);
 				pr = parseInt($(obj.el).css('padding-right'), 10);
 				if (obj.options.arrows) {
+					// remove if already displaed
+					if (obj.helpers.arrows) $(obj.helpers.arrows).remove();
+					// add fresh
 					$(obj.el).after(
 						'<div class="w2ui-field-helper" style="border: 1px solid transparent">&nbsp;'+
 						'	<div class="w2ui-field-up" type="up">'+
@@ -1456,7 +1588,6 @@
 							'padding'		: 0,
 							'margin-top'	: (parseInt($(obj.el).css('margin-top'), 10) + 1) + 'px',
 							'margin-bottom'	: 0,
-							'pointer-events': 'auto',
 							'border-left'	: '1px solid silver'
 						})
 						.css('margin-left', '-'+ (helper.width() + parseInt($(obj.el).css('margin-right'), 10) + 12) + 'px')
@@ -1484,6 +1615,9 @@
 					obj.helpers.arrows = helper;
 				}
 				if (obj.options.suffix !== '') {
+					// remove if already displaed
+					if (obj.helpers.suffix) $(obj.helpers.suffix).remove();
+					// add fresh
 					$(obj.el).after(
 						'<div class="w2ui-field-helper">'+
 							obj.options.suffix +
@@ -1501,6 +1635,14 @@
 							'margin-top'		: (parseInt($(obj.el).css('margin-top'), 10) + 1) + 'px',
 							'margin-bottom'		: (parseInt($(obj.el).css('margin-bottom'), 10) + 1) + 'px'
 						})
+						.on('click', function (event) {
+							if (obj.type == 'list') {
+								$(obj.helpers.focus).find('input').focus();
+							} else {
+								$(obj.el).focus();
+							}
+						});
+
 					helper.css('margin-left', '-'+ (w2utils.getSize(helper, 'width') + parseInt($(obj.el).css('margin-right'), 10) + 2) + 'px');
 					pr += helper.width() + 3;
 					$(obj.el).css('padding-right', pr + 'px');
@@ -1509,6 +1651,69 @@
 				}
 			}, 1);
 		},
+
+		addFocus: function () {
+			var obj		 = this;
+			var options	 = this.options;
+			var width	 = 0; // 11 - show search icon, 0 do not show
+			if (options.icon) width = 11;
+			// clean up & init
+			$(obj.helpers.focus).remove();
+			// build helper
+			var html =
+				'<div class="w2ui-field-helper">'+ 
+				'	<div class="w2ui-icon icon-search" style="position: absolute; opacity: 0; margin-top: 4px; margin-left: 2px; width: '+ width +'px !important; background-position: left !important;"></div>'+
+				'	<input type="text" autocomplete="off">'+
+				'<div>';
+			$(obj.el).attr('tabindex', -1).before(html);
+			var helper = $(obj.el).prev();
+			obj.helpers.focus = helper;
+			helper.css({
+					width			: $(obj.el).width(),
+					"margin-top"	: $(obj.el).css('margin-top'),
+					"margin-left"	: (parseInt($(obj.el).css('margin-left')) + parseInt($(obj.el).css('padding-left'))) + 'px',
+					"margin-bottom"	: $(obj.el).css('margin-bottom'),
+					"margin-right"	: $(obj.el).css('margin-right'),
+				})
+				.find('input')
+				.css({
+					cursor	: 'default',
+					width	: '100%',
+					outline	: 'none',
+					opacity	: 1,
+					margin	: 0,
+					border	: '1px solid transparent',
+					padding : $(obj.el).css('padding-top'),
+					"padding-left"		: 0,
+					"margin-left"		: width + (width > 0 ? 6 : 0),
+					"background-color"	: 'transparent'
+				});
+			// INPUT events
+			helper.find('input')
+				.on('click', function (event) {
+					if ($('#w2ui-overlay').length == 0) obj.focus(event);
+					event.stopPropagation();
+				})
+				.on('focus', function (event) {
+					$(obj.el).css({ 'outline': 'auto 5px #7DB4F3', 'outline-offset': '-2px' });
+					$(this).val('');
+					$(obj.el).triggerHandler('focus');
+					if (event.stopPropagation) event.stopPropagation(); else event.cancelBubble = true;
+				})
+				.on('blur', function (event) {
+					$(obj.el).css('outline', 'none');
+					$(this).val('');
+					obj.refresh(); 
+					$(obj.el).triggerHandler('blur');
+					if (event.stopPropagation) event.stopPropagation(); else event.cancelBubble = true;
+				})
+				.on('keyup', 	function (event) { obj.keyUp(event) })
+				.on('keydown', 	function (event) { obj.keyDown(event) })
+				.on('keypress', function (event) { obj.keyPress(event); });
+			// MAIN div
+			helper.on('click', function (event) { $(this).find('input').focus(); });
+			obj.refresh();
+		},	
 
 		addMulti: function () {
 			var obj		 = this;
@@ -1527,7 +1732,7 @@
 									- parseInt($(obj.el).css('margin-right'), 10))
 									+ 'px;';
 			if (obj.type == 'enum') {
-				html = 	'<div class="w2ui-field-helper w2ui-list" style="'+ margin + '; box-sizing: border-box; pointer-events: auto">'+
+				html = 	'<div class="w2ui-field-helper w2ui-list" style="'+ margin + '; box-sizing: border-box">'+
 					   	'	<div style="padding: 0px; margin: 0px; margin-right: 20px; display: inline-block">'+
 					   	'	<ul>'+
 						'		<li style="padding-left: 0px; padding-right: 0px" class="nomouse">'+
@@ -1538,7 +1743,7 @@
 						'</div>';
 			}
 			if (obj.type == 'file') {
-				html = 	'<div class="w2ui-field-helper w2ui-list" style="'+ margin + '; box-sizing: border-box; pointer-events: auto">'+
+				html = 	'<div class="w2ui-field-helper w2ui-list" style="'+ margin + '; box-sizing: border-box">'+
 					   	'	<div style="padding: 0px; margin: 0px; margin-right: 20px; display: inline-block">'+
 					   	'	<ul><li style="padding-left: 0px; padding-right: 0px" class="nomouse"></li></ul>'+
 						'	<input class="file-input" type="file" name="attachment" multiple style="display: none" tabindex="-1">'
@@ -1560,15 +1765,16 @@
 				div.find('input')
 					.on('click', function (event) {
 						if ($('#w2ui-overlay').length == 0) obj.focus(event);
+						$(obj.el).triggerHandler('click');
 					})
 					.on('focus', function (event) {
 						$(div).css({ 'outline': 'auto 5px #7DB4F3', 'outline-offset': '-2px' });
-						obj.focus(event);
+						$(obj.el).triggerHandler('focus');
 						if (event.stopPropagation) event.stopPropagation(); else event.cancelBubble = true;
 					})
 					.on('blur', function (event) {
 						$(div).css('outline', 'none');
-						obj.blur(event);
+						$(obj.el).triggerHandler('blur');
 						if (event.stopPropagation) event.stopPropagation(); else event.cancelBubble = true;
 					})
 					.on('keyup', 	function (event) { obj.keyUp(event) })
